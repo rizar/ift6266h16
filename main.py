@@ -28,9 +28,12 @@ from blocks.initialization import Constant, Uniform
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.monitoring import aggregation
-from fuel.datasets import MNIST
+from fuel.datasets import DogsVsCats
 from fuel.schemes import ShuffledScheme
 from fuel.streams import DataStream
+from fuel.transformers import ScaleAndShift
+from fuel.transformers.image import (
+    MinimumImageDimensions, RandomFixedSizeCrop)
 from toolz.itertoolz import interleave
 
 
@@ -129,6 +132,15 @@ class LeNet(FeedforwardSequence, Initializable):
         self.top_mlp.dims = [numpy.prod(conv_out_dim)] + self.top_mlp_dims
 
 
+def add_transfomers(stream):
+    stream = MinimumImageDimensions(stream, (128, 128),
+                                    which_sources='image_features')
+    stream = RandomFixedSizeCrop(stream, (128, 128),
+                                 which_sources='image_features')
+    stream = ScaleAndShift(stream, 1 / 255.0, 0,
+                           which_sources='image_features')
+    return stream
+
 def main(save_to, num_epochs, feature_maps=None, mlp_hiddens=None,
          conv_sizes=None, pool_sizes=None, batch_size=500,
          num_batches=None):
@@ -140,13 +152,13 @@ def main(save_to, num_epochs, feature_maps=None, mlp_hiddens=None,
         conv_sizes = [5, 5]
     if pool_sizes is None:
         pool_sizes = [2, 2]
-    image_size = (28, 28)
-    output_size = 10
+    image_size = (128, 128)
+    output_size = 2
 
     # Use ReLUs everywhere and softmax for the final prediction
     conv_activations = [Rectifier() for _ in feature_maps]
     mlp_activations = [Rectifier() for _ in mlp_hiddens] + [Softmax()]
-    convnet = LeNet(conv_activations, 1, image_size,
+    convnet = LeNet(conv_activations, 3, image_size,
                     filter_sizes=zip(conv_sizes, conv_sizes),
                     feature_maps=feature_maps,
                     pooling_sizes=zip(pool_sizes, pool_sizes),
@@ -172,7 +184,7 @@ def main(save_to, num_epochs, feature_maps=None, mlp_hiddens=None,
         else:
             logging.info("Layer {} ({}) dim: {} {} {}".format(
                 i, layer.__class__.__name__, *layer.get_dim('output')))
-    x = tensor.tensor4('features')
+    x = tensor.tensor4('image_features')
     y = tensor.lmatrix('targets')
 
     # Normalize input and apply the convnet
@@ -184,16 +196,18 @@ def main(save_to, num_epochs, feature_maps=None, mlp_hiddens=None,
 
     cg = ComputationGraph([cost, error_rate])
 
-    mnist_train = MNIST(("train",))
-    mnist_train_stream = DataStream.default_stream(
-        mnist_train, iteration_scheme=ShuffledScheme(
-            mnist_train.num_examples, batch_size))
+    mnist_train = DogsVsCats(("train",))
+    mnist_train_stream = add_transfomers(
+        DataStream(
+            mnist_train, iteration_scheme=ShuffledScheme(
+                mnist_train.num_examples, batch_size)))
 
-    mnist_test = MNIST(("test",))
-    mnist_test_stream = DataStream.default_stream(
-        mnist_test,
-        iteration_scheme=ShuffledScheme(
-            mnist_test.num_examples, batch_size))
+    mnist_test = DogsVsCats(("test",))
+    mnist_test_stream = add_transfomers(
+        DataStream(
+            mnist_test,
+            iteration_scheme=ShuffledScheme(
+                mnist_test.num_examples, batch_size)))
 
     # Train with simple SGD
     algorithm = GradientDescent(
