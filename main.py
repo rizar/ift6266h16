@@ -31,7 +31,7 @@ from blocks.monitoring import aggregation
 from fuel.datasets import DogsVsCats
 from fuel.schemes import ShuffledScheme
 from fuel.streams import DataStream
-from fuel.transformers import ScaleAndShift
+from fuel.transformers import ScaleAndShift, ForceFloatX
 from fuel.transformers.image import (
     MinimumImageDimensions, RandomFixedSizeCrop)
 from toolz.itertoolz import interleave
@@ -139,6 +139,7 @@ def add_transfomers(stream):
                                  which_sources='image_features')
     stream = ScaleAndShift(stream, 1 / 255.0, 0,
                            which_sources='image_features')
+    stream = ForceFloatX(stream)
     return stream
 
 def main(save_to, num_epochs, feature_maps=None, mlp_hiddens=None,
