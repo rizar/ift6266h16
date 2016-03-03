@@ -36,8 +36,3 @@ that we will have to upsample some of them. Let's also look at the aspect ratios
 We can see, that only a fraction of the images are squares, and that the majority of themare somewhat "vertical", i.e. the height is greater than the length. Nevertheless,
 I will start with square crops of a modest 128x128 size, to keep the cost and the 
 complexity of the approach down. It would be cool to select a 128x128 crop intelligently, using some sort of an attention mechanism, but I will get something simple to work first.
-
- 
-[jekyll]:      http://jekyllrb.com
-[jekyll-gh]:   https://github.com/jekyll/jekyll
-[jekyll-help]: https://github.com/jekyll/jekyll-help
