@@ -134,11 +134,11 @@ class LeNet(FeedforwardSequence, Initializable):
 
 def add_transfomers(stream):
     stream = MinimumImageDimensions(stream, (128, 128),
-                                    which_sources='image_features')
+                                    which_sources=['image_features'])
     stream = RandomFixedSizeCrop(stream, (128, 128),
-                                 which_sources='image_features')
+                                 which_sources=['image_features'])
     stream = ScaleAndShift(stream, 1 / 255.0, 0,
-                           which_sources='image_features')
+                           which_sources=['image_features'])
     stream = ForceFloatX(stream)
     return stream
 
