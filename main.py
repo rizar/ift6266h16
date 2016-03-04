@@ -23,13 +23,13 @@ from blocks.extensions import FinishAfter, Timing, Printing, ProgressBar
 from blocks.extensions.monitoring import (DataStreamMonitoring,
                                           TrainingDataMonitoring)
 from blocks.extensions.saveload import Checkpoint
-from blocks.graph import ComputationGraph
+from blocks.serialization import load_parameters
 from blocks.initialization import Constant, Uniform
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.monitoring import aggregation
 from fuel.datasets import DogsVsCats
-from fuel.schemes import ShuffledScheme
+from fuel.schemes import ShuffledScheme, SequentialExampleScheme
 from fuel.streams import DataStream
 from fuel.transformers import ScaleAndShift, ForceFloatX
 from fuel.transformers.image import (
@@ -132,17 +132,7 @@ class LeNet(FeedforwardSequence, Initializable):
         self.top_mlp.dims = [numpy.prod(conv_out_dim)] + self.top_mlp_dims
 
 
-def add_transfomers(stream):
-    stream = MinimumImageDimensions(stream, (128, 128),
-                                    which_sources=['image_features'])
-    stream = RandomFixedSizeCrop(stream, (128, 128),
-                                 which_sources=['image_features'])
-    stream = ScaleAndShift(stream, 1 / 255.0, 0,
-                           which_sources=['image_features'])
-    stream = ForceFloatX(stream)
-    return stream
-
-def main(save_to, num_epochs, feature_maps=None, mlp_hiddens=None,
+def main(save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=None,
          conv_sizes=None, pool_sizes=None, batch_size=500,
          num_batches=None):
     if feature_maps is None:
@@ -153,6 +143,8 @@ def main(save_to, num_epochs, feature_maps=None, mlp_hiddens=None,
         conv_sizes = [5, 5]
     if pool_sizes is None:
         pool_sizes = [2, 2]
+
+    width = 128
     image_size = (128, 128)
     output_size = 2
 
@@ -185,34 +177,67 @@ def main(save_to, num_epochs, feature_maps=None, mlp_hiddens=None,
         else:
             logging.info("Layer {} ({}) dim: {} {} {}".format(
                 i, layer.__class__.__name__, *layer.get_dim('output')))
+
+
+    single_x = tensor.tensor3('image_features')
     x = tensor.tensor4('image_features')
+    single_y = tensor.lvector('targets')
     y = tensor.lmatrix('targets')
 
-    # Normalize input and apply the convnet
+    # Training
     probs = convnet.apply(x)
     cost = (CategoricalCrossEntropy().apply(y.flatten(), probs)
             .copy(name='cost'))
     error_rate = (MisclassificationRate().apply(y.flatten(), probs)
                   .copy(name='error_rate'))
 
-    cg = ComputationGraph([cost, error_rate])
+    # Validation
+    hor_offset = (single_x.shape[1] - width) / 2
+    ver_offset = (single_x.shape[2] - width) / 2
+    x_views = tensor.concatenate(
+        [single_x[None, :, :width, :width],
+         single_x[None, :, :width, -width:],
+         single_x[None, :, -width:, :width],
+         single_x[None, :, -width:, -width:],
+         single_x[None, :, hor_offset:hor_offset + width, ver_offset:ver_offset + width]],
+        axis=0)
+    valid_probs = convnet.apply(x_views).mean(axis=0)[None, :]
+    valid_cost = (CategoricalCrossEntropy().apply(single_y, valid_probs)
+            .copy(name='cost'))
+    valid_error_rate = (MisclassificationRate().apply(
+        single_y, valid_probs).copy(name='error_rate'))
 
-    mnist_train = DogsVsCats(("train",))
-    mnist_train_stream = add_transfomers(
-        DataStream(
-            mnist_train, iteration_scheme=ShuffledScheme(
-                mnist_train.num_examples, batch_size)))
+    model = Model([cost, error_rate])
+    if load_params:
+        with open(load_params, 'r') as src:
+            model.set_parameter_values(load_parameters(src))
 
-    mnist_test = DogsVsCats(("test",))
-    mnist_test_stream = add_transfomers(
-        DataStream(
-            mnist_test,
-            iteration_scheme=ShuffledScheme(
-                mnist_test.num_examples, batch_size)))
+    # Training stream with random cropping
+    train = DogsVsCats(("train",))
+    train_str =  DataStream(
+        train, iteration_scheme=ShuffledScheme(
+            range(train.num_examples - 5000), batch_size))
+    train_str = MinimumImageDimensions(train_str, (128, 128),
+                                    which_sources=['image_features'])
+    train_str = RandomFixedSizeCrop(train_str, (128, 128),
+                                 which_sources=['image_features'])
+    train_str = ScaleAndShift(train_str, 1 / 255.0, 0,
+                           which_sources=['image_features'])
+    train_str = ForceFloatX(train_str)
+
+    # Validation stream without cropping
+    valid_str = DataStream(
+        train, iteration_scheme=SequentialExampleScheme(
+            range(train.num_examples - 5000, train.num_examples)))
+    valid_str = MinimumImageDimensions(valid_str, (128, 128),
+                                    which_sources=['image_features'])
+    valid_str = ScaleAndShift(valid_str, 1 / 255.0, 0,
+                           which_sources=['image_features'])
+    valid_str = ForceFloatX(valid_str)
 
     # Train with simple SGD
     algorithm = GradientDescent(
-        cost=cost, parameters=cg.parameters,
+        cost=cost, parameters=model.parameters,
         step_rule=Scale(learning_rate=0.1))
     # `Timing` extension reports time for reading data, aggregating a batch
     # and monitoring;
@@ -221,9 +246,9 @@ def main(save_to, num_epochs, feature_maps=None, mlp_hiddens=None,
                   FinishAfter(after_n_epochs=num_epochs,
                               after_n_batches=num_batches),
                   DataStreamMonitoring(
-                      [cost, error_rate],
-                      mnist_test_stream,
-                      prefix="test"),
+                      [valid_cost, valid_error_rate],
+                      valid_str,
+                      prefix="valid"),
                   TrainingDataMonitoring(
                       [cost, error_rate,
                        aggregation.mean(algorithm.total_gradient_norm)],
@@ -237,7 +262,7 @@ def main(save_to, num_epochs, feature_maps=None, mlp_hiddens=None,
 
     main_loop = MainLoop(
         algorithm,
-        mnist_train_stream,
+        train_str,
         model=model,
         extensions=extensions)
 
@@ -247,11 +272,12 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     parser = ArgumentParser("An example of training a convolutional network "
                             "on the MNIST dataset.")
-    parser.add_argument("--num-epochs", type=int, default=2,
-                        help="Number of training epochs to do.")
     parser.add_argument("save_to", default="mnist.pkl", nargs="?",
                         help="Destination to save the state of the training "
                              "process.")
+    parser.add_argument("--num-epochs", type=int, default=2,
+                        help="Number of training epochs to do.")
+    parser.add_argument("--load-params", help="Path to load parameters from")
     parser.add_argument("--feature-maps", type=int, nargs='+',
                         default=[20, 50], help="List of feature maps numbers.")
     parser.add_argument("--mlp-hiddens", type=int, nargs='+', default=[500],
