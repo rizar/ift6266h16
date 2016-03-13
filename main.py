@@ -254,7 +254,7 @@ def main(save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=N
                        aggregation.mean(algorithm.total_gradient_norm)],
                       prefix="train",
                       after_epoch=True),
-                  Checkpoint(save_to),
+                  Checkpoint(save_to, save_separately=['log']),
                   ProgressBar(),
                   Printing()]
 
