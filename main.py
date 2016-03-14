@@ -13,7 +13,7 @@ from argparse import ArgumentParser
 
 from theano import tensor
 
-from blocks.algorithms import GradientDescent, Scale
+from blocks.algorithms import GradientDescent, Scale, RMSProp
 from blocks.bricks import (MLP, Rectifier, Initializable, FeedforwardSequence,
                            Softmax, Activation)
 from blocks.bricks.conv import (Convolutional, ConvolutionalSequence,
@@ -238,7 +238,7 @@ def main(save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=N
     # Train with simple SGD
     algorithm = GradientDescent(
         cost=cost, parameters=model.parameters,
-        step_rule=Scale(learning_rate=0.1))
+        step_rule=RMSProp(decay_rate=0.999, learning_rate=0.0003))
     # `Timing` extension reports time for reading data, aggregating a batch
     # and monitoring;
     # `ProgressBar` displays a nice progress bar during training.
@@ -254,7 +254,7 @@ def main(save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=N
                        aggregation.mean(algorithm.total_gradient_norm)],
                       prefix="train",
                       after_epoch=True),
-                  Checkpoint(save_to, save_separately=['log']),
+                  Checkpoint(save_to, save_separately=['log'], after_epoch=True),
                   ProgressBar(),
                   Printing()]
 
