@@ -158,15 +158,10 @@ def main(save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=N
                     top_mlp_activations=mlp_activations,
                     top_mlp_dims=mlp_hiddens + [output_size],
                     border_mode='full',
-                    weights_init=Uniform(width=.2),
+                    weights_init=Uniform(width=.1),
                     biases_init=Constant(0))
     # We push initialization config to set different initialization schemes
     # for convolutional layers.
-    convnet.push_initialization_config()
-    convnet.layers[0].weights_init = Uniform(width=.2)
-    convnet.layers[1].weights_init = Uniform(width=.09)
-    convnet.top_mlp.linear_transformations[0].weights_init = Uniform(width=.08)
-    convnet.top_mlp.linear_transformations[1].weights_init = Uniform(width=.11)
     convnet.initialize()
     logging.info("Input dim: {} {} {}".format(
         *convnet.children[0].get_dim('input_')))
@@ -254,7 +249,8 @@ def main(save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=N
                        aggregation.mean(algorithm.total_gradient_norm)],
                       prefix="train",
                       after_epoch=True),
-                  Checkpoint(save_to, save_separately=['log'], after_epoch=True),
+                  Checkpoint(save_to, save_separately=['log'],
+                             before_training=True, after_epoch=True),
                   ProgressBar(),
                   Printing()]
 
