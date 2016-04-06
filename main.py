@@ -7,13 +7,17 @@ python __init__.py --num-epochs 50
 It is going to reach around 0.8% error rate on the test set.
 
 """
+from __future__ import print_function
+
 import logging
 import numpy
 from argparse import ArgumentParser
 
+import theano
 from theano import tensor
 
 from blocks.algorithms import GradientDescent, Scale, RMSProp
+from blocks.bricks.base import application
 from blocks.bricks import (MLP, Rectifier, Initializable, FeedforwardSequence,
                            Softmax, Activation)
 from blocks.bricks.conv import (Convolutional, ConvolutionalSequence,
@@ -131,10 +135,39 @@ class LeNet(FeedforwardSequence, Initializable):
         self.top_mlp.activations = self.top_mlp_activations
         self.top_mlp.dims = [numpy.prod(conv_out_dim)] + self.top_mlp_dims
 
+    @application(inputs=['image'])
+    def apply_5windows(self, image):
+        width, height = self.image_shape
+        # the dimension 0 stands for the
+        hor_offset = (image.shape[1] - width) / 2
+        ver_offset = (image.shape[2] - height) / 2
+        x_views = tensor.concatenate(
+            [image[None, :, :width, :height],
+             image[None, :, :width, -height:],
+             image[None, :, -width:, :height],
+             image[None, :, -width:, -height:],
+             image[None, :,
+                   hor_offset:hor_offset + width, ver_offset:ver_offset + height]],
+             axis=0)
+        return self.apply(x_views).mean(axis=0)[None, :]
 
-def main(save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=None,
-         conv_sizes=None, pool_sizes=None, batch_size=500,
-         num_batches=None):
+
+def add_transformers(stream, random_crop=False):
+    stream = MinimumImageDimensions(stream, (128, 128),
+                                    which_sources=['image_features'])
+    if random_crop:
+        stream = RandomFixedSizeCrop(stream, (128, 128),
+                                    which_sources=['image_features'])
+    stream = ScaleAndShift(stream, 1 / 255.0, 0,
+                           which_sources=['image_features'])
+    stream = ForceFloatX(stream)
+    return stream
+
+
+def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=None,
+         conv_sizes=None, pool_sizes=None,
+         batch_size=None, num_batches=None,
+         valid_examples=None):
     if feature_maps is None:
         feature_maps = [20, 50]
     if mlp_hiddens is None:
@@ -143,8 +176,11 @@ def main(save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=N
         conv_sizes = [5, 5]
     if pool_sizes is None:
         pool_sizes = [2, 2]
+    if batch_size is None:
+        batch_size = 500
+    if valid_examples is None:
+        valid_examples = 2500
 
-    width = 128
     image_size = (128, 128)
     output_size = 2
 
@@ -187,16 +223,7 @@ def main(save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=N
                   .copy(name='error_rate'))
 
     # Validation
-    hor_offset = (single_x.shape[1] - width) / 2
-    ver_offset = (single_x.shape[2] - width) / 2
-    x_views = tensor.concatenate(
-        [single_x[None, :, :width, :width],
-         single_x[None, :, :width, -width:],
-         single_x[None, :, -width:, :width],
-         single_x[None, :, -width:, -width:],
-         single_x[None, :, hor_offset:hor_offset + width, ver_offset:ver_offset + width]],
-        axis=0)
-    valid_probs = convnet.apply(x_views).mean(axis=0)[None, :]
+    valid_probs = convnet.apply_5windows(single_x)
     valid_cost = (CategoricalCrossEntropy().apply(single_y, valid_probs)
             .copy(name='cost'))
     valid_error_rate = (MisclassificationRate().apply(
@@ -207,84 +234,96 @@ def main(save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=N
         with open(load_params, 'r') as src:
             model.set_parameter_values(load_parameters(src))
 
-    # Training stream with random cropping
-    train = DogsVsCats(("train",))
-    train_str =  DataStream(
-        train, iteration_scheme=ShuffledScheme(
-            range(train.num_examples - 5000), batch_size))
-    train_str = MinimumImageDimensions(train_str, (128, 128),
-                                    which_sources=['image_features'])
-    train_str = RandomFixedSizeCrop(train_str, (128, 128),
-                                 which_sources=['image_features'])
-    train_str = ScaleAndShift(train_str, 1 / 255.0, 0,
-                           which_sources=['image_features'])
-    train_str = ForceFloatX(train_str)
+    if mode == 'train':
+        # Training stream with random cropping
+        train = DogsVsCats(("train",))
+        train_str =  DataStream(
+            train, iteration_scheme=ShuffledScheme(
+                range(train.num_examples - valid_examples), batch_size))
+        train_str = add_transformers(train_str, random_crop=True)
 
-    # Validation stream without cropping
-    valid_str = DataStream(
-        train, iteration_scheme=SequentialExampleScheme(
-            range(train.num_examples - 5000, train.num_examples)))
-    valid_str = MinimumImageDimensions(valid_str, (128, 128),
-                                    which_sources=['image_features'])
-    valid_str = ScaleAndShift(valid_str, 1 / 255.0, 0,
-                           which_sources=['image_features'])
-    valid_str = ForceFloatX(valid_str)
+        # Validation stream without cropping
+        valid_str = DataStream(
+            train, iteration_scheme=SequentialExampleScheme(
+                range(train.num_examples - valid_examples, train.num_examples)))
+        valid_str = add_transformers(valid_str)
 
-    # Train with simple SGD
-    algorithm = GradientDescent(
-        cost=cost, parameters=model.parameters,
-        step_rule=RMSProp(decay_rate=0.999, learning_rate=0.0003))
-    # `Timing` extension reports time for reading data, aggregating a batch
-    # and monitoring;
-    # `ProgressBar` displays a nice progress bar during training.
-    extensions = [Timing(every_n_batches=100),
-                  FinishAfter(after_n_epochs=num_epochs,
-                              after_n_batches=num_batches),
-                  DataStreamMonitoring(
-                      [valid_cost, valid_error_rate],
-                      valid_str,
-                      prefix="valid"),
-                  TrainingDataMonitoring(
-                      [cost, error_rate,
-                       aggregation.mean(algorithm.total_gradient_norm)],
-                      prefix="train",
-                      after_epoch=True),
-                  Checkpoint(save_to, save_separately=['log'],
-                             before_training=True, after_epoch=True),
-                  Printing(every_n_batches=100)]
+        # Train with simple SGD
+        algorithm = GradientDescent(
+            cost=cost, parameters=model.parameters,
+            step_rule=RMSProp(decay_rate=0.999, learning_rate=0.0003))
+        # `Timing` extension reports time for reading data, aggregating a batch
+        # and monitoring;
+        # `ProgressBar` displays a nice progress bar during training.
+        extensions = [Timing(every_n_batches=100),
+                    FinishAfter(after_n_epochs=num_epochs,
+                                after_n_batches=num_batches),
+                    DataStreamMonitoring(
+                        [valid_cost, valid_error_rate],
+                        valid_str,
+                        prefix="valid"),
+                    TrainingDataMonitoring(
+                        [cost, error_rate,
+                        aggregation.mean(algorithm.total_gradient_norm)],
+                        prefix="train",
+                        after_epoch=True),
+                    Checkpoint(save_to, save_separately=['log'],
+                                before_training=True, after_epoch=True),
+                    Printing(every_n_batches=100)]
 
-    model = Model(cost)
+        model = Model(cost)
 
-    main_loop = MainLoop(
-        algorithm,
-        train_str,
-        model=model,
-        extensions=extensions)
+        main_loop = MainLoop(
+            algorithm,
+            train_str,
+            model=model,
+            extensions=extensions)
 
-    main_loop.run()
+        main_loop.run()
+    elif mode == 'test':
+        classify = theano.function([single_x], valid_probs.argmax())
+        test = DogsVsCats(("test",))
+        test_str = DataStream(
+            test, iteration_scheme=SequentialExampleScheme(test.num_examples))
+        test_str = add_transformers(test_str)
+        with open(save_to, 'w') as dst:
+            print("id, label", file=dst)
+            for index, (image, _) in enumerate(test_str.get_epoch_iterator()):
+                print(classify(image), file=dst)
+    else:
+        assert False
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s: %(name)s: %(levelname)s: %(message)s")
     parser = ArgumentParser("An example of training a convolutional network "
                             "on the MNIST dataset.")
-    parser.add_argument("save_to", default="mnist.pkl", nargs="?",
+    parser.add_argument("mode",
+                        help="What to do", choices=['train', 'test'])
+    parser.add_argument("save_to",
                         help="Destination to save the state of the training "
                              "process.")
+
     parser.add_argument("--num-epochs", type=int, default=2,
                         help="Number of training epochs to do.")
     parser.add_argument("--load-params", help="Path to load parameters from")
+    parser.add_argument("--batch-size", type=int,
+                        help="Batch size.")
+
+    parser.add_argument("--valid-examples", type=int)
+
     parser.add_argument("--feature-maps", type=int, nargs='+',
                         default=[20, 50], help="List of feature maps numbers.")
-    parser.add_argument("--mlp-hiddens", type=int, nargs='+', default=[500],
+    parser.add_argument("--mlp-hiddens", type=int, nargs='+',
                         help="List of numbers of hidden units for the MLP.")
-    parser.add_argument("--conv-sizes", type=int, nargs='+', default=[5, 5],
+    parser.add_argument("--conv-sizes", type=int, nargs='+',
                         help="Convolutional kernels sizes. The kernels are "
                         "always square.")
-    parser.add_argument("--pool-sizes", type=int, nargs='+', default=[2, 2],
+    parser.add_argument("--pool-sizes", type=int, nargs='+',
                         help="Pooling sizes. The pooling windows are always "
                              "square. Should be the same length as "
                              "--conv-sizes.")
-    parser.add_argument("--batch-size", type=int, default=500,
-                        help="Batch size.")
+
     args = parser.parse_args()
     main(**vars(args))
