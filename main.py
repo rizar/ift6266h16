@@ -40,6 +40,8 @@ from fuel.transformers.image import (
     MinimumImageDimensions, RandomFixedSizeCrop)
 from toolz.itertoolz import interleave
 
+logger = logging.getLogger(__name__)
+
 
 class LeNet(FeedforwardSequence, Initializable):
     """LeNet-like convolutional network.
@@ -167,7 +169,7 @@ def add_transformers(stream, random_crop=False):
 def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=None,
          conv_sizes=None, pool_sizes=None,
          batch_size=None, num_batches=None,
-         valid_examples=None):
+         test_set=None, valid_examples=None):
     if feature_maps is None:
         feature_maps = [20, 50]
     if mlp_hiddens is None:
@@ -180,6 +182,8 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
         batch_size = 500
     if valid_examples is None:
         valid_examples = 2500
+    if test_set is None:
+        test_set = 'test'
 
     image_size = (128, 128)
     output_size = 2
@@ -231,6 +235,7 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
 
     model = Model([cost, error_rate])
     if load_params:
+        logger.info("Loaded params from {}".format(load_params))
         with open(load_params, 'r') as src:
             model.set_parameter_values(load_parameters(src))
 
@@ -282,14 +287,19 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
         main_loop.run()
     elif mode == 'test':
         classify = theano.function([single_x], valid_probs.argmax())
-        test = DogsVsCats(("test",))
+        test = DogsVsCats((test_set,))
         test_str = DataStream(
             test, iteration_scheme=SequentialExampleScheme(test.num_examples))
         test_str = add_transformers(test_str)
+        correct = 0
         with open(save_to, 'w') as dst:
-            print("id, label", file=dst)
-            for index, (image, _) in enumerate(test_str.get_epoch_iterator()):
-                print(classify(image), file=dst)
+            print("id", "label", sep=',', file=dst)
+            for index, (image, label) in enumerate(test_str.get_epoch_iterator()):
+                prediction = classify(image)
+                print(index + 1, classify(image), sep=',', file=dst)
+                if prediction == label:
+                    correct += 1
+        print(correct / float(test.num_examples))
     else:
         assert False
 
@@ -311,6 +321,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int,
                         help="Batch size.")
 
+    parser.add_argument("--test-set", type=str)
     parser.add_argument("--valid-examples", type=int)
 
     parser.add_argument("--feature-maps", type=int, nargs='+',
