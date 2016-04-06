@@ -237,7 +237,7 @@ def main(save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=N
     # `Timing` extension reports time for reading data, aggregating a batch
     # and monitoring;
     # `ProgressBar` displays a nice progress bar during training.
-    extensions = [Timing(),
+    extensions = [Timing(every_n_batches=100),
                   FinishAfter(after_n_epochs=num_epochs,
                               after_n_batches=num_batches),
                   DataStreamMonitoring(
@@ -251,8 +251,7 @@ def main(save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=N
                       after_epoch=True),
                   Checkpoint(save_to, save_separately=['log'],
                              before_training=True, after_epoch=True),
-                  ProgressBar(),
-                  Printing()]
+                  Printing(every_n_batches=100)]
 
     model = Model(cost)
 
