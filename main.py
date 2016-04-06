@@ -241,16 +241,15 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
 
     if mode == 'train':
         # Training stream with random cropping
-        train = DogsVsCats(("train",))
+        train = DogsVsCats(("train",), subset=slice(None, 25000 - valid_examples, None))
         train_str =  DataStream(
-            train, iteration_scheme=ShuffledScheme(
-                range(train.num_examples - valid_examples), batch_size))
+            train, iteration_scheme=ShuffledScheme(train.num_examples, batch_size))
         train_str = add_transformers(train_str, random_crop=True)
 
         # Validation stream without cropping
+        valid = DogsVsCats(("train",), subset=slice(25000 - valid_examples, None, None))
         valid_str = DataStream(
-            train, iteration_scheme=SequentialExampleScheme(
-                range(train.num_examples - valid_examples, train.num_examples)))
+            train, iteration_scheme=SequentialExampleScheme(valid.num_examples))
         valid_str = add_transformers(valid_str)
 
         # Train with simple SGD
@@ -294,10 +293,11 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
         correct = 0
         with open(save_to, 'w') as dst:
             print("id", "label", sep=',', file=dst)
-            for index, (image, label) in enumerate(test_str.get_epoch_iterator()):
+            for index, example in enumerate(test_str.get_epoch_iterator()):
+                image = example[0]
                 prediction = classify(image)
                 print(index + 1, classify(image), sep=',', file=dst)
-                if prediction == label:
+                if len(example) > 1 and prediction == example[1]:
                     correct += 1
         print(correct / float(test.num_examples))
     else:
