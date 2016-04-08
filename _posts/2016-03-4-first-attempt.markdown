@@ -33,9 +33,3 @@ The training set performance never went significantly above 70%. Using 5 windows
 prediction for the validation gave me 4-5% additional percent of accuracy. This is an expected an quite significant improvement.
 
 TODO: post the training curves
-
-
-
-
-
-
