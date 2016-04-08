@@ -16,7 +16,7 @@ from argparse import ArgumentParser
 import theano
 from theano import tensor
 
-from blocks.algorithms import GradientDescent, Scale, RMSProp
+from blocks.algorithms import GradientDescent, Scale, RMSProp, Adam
 from blocks.bricks.base import application
 from blocks.bricks import (MLP, Rectifier, Initializable, FeedforwardSequence,
                            Softmax, Activation)
@@ -168,7 +168,7 @@ def add_transformers(stream, random_crop=False):
 
 def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=None,
          conv_sizes=None, pool_sizes=None,
-         batch_size=None, num_batches=None,
+         batch_size=None, num_batches=None, algo=None,
          test_set=None, valid_examples=None):
     if feature_maps is None:
         feature_maps = [20, 50]
@@ -184,6 +184,8 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
         valid_examples = 2500
     if test_set is None:
         test_set = 'test'
+    if algo is None:
+        algo = 'rmsprop'
 
     image_size = (128, 128)
     output_size = 2
@@ -253,9 +255,16 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
         valid_str = add_transformers(valid_str)
 
         # Train with simple SGD
+        if algo == 'rmsprop':
+            step_rule = RMSProp(decay_rate=0.999, learning_rate=0.0003)
+        elif algo == 'adam':
+            step_rule = Adam()
+        else:
+            assert False
+
         algorithm = GradientDescent(
             cost=cost, parameters=model.parameters,
-            step_rule=RMSProp(decay_rate=0.999, learning_rate=0.0003))
+            step_rule=step_rule)
         # `Timing` extension reports time for reading data, aggregating a batch
         # and monitoring;
         # `ProgressBar` displays a nice progress bar during training.
@@ -320,6 +329,8 @@ if __name__ == "__main__":
     parser.add_argument("--load-params", help="Path to load parameters from")
     parser.add_argument("--batch-size", type=int,
                         help="Batch size.")
+    parser.add_argument("--algo", choices=['rmsprop', 'adam'],
+                        help="The algorithm to use.")
 
     parser.add_argument("--test-set", type=str)
     parser.add_argument("--valid-examples", type=int)
