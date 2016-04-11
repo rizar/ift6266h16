@@ -175,9 +175,9 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
     if mlp_hiddens is None:
         mlp_hiddens = [500]
     if conv_sizes is None:
-        conv_sizes = [5, 5]
+        conv_sizes = [5, 5, 5]
     if pool_sizes is None:
-        pool_sizes = [2, 2]
+        pool_sizes = [2, 2, 2]
     if batch_size is None:
         batch_size = 500
     if valid_examples is None:
