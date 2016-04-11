@@ -11,6 +11,7 @@ from __future__ import print_function
 
 import logging
 import numpy
+import os
 from argparse import ArgumentParser
 
 import theano
@@ -27,6 +28,8 @@ from blocks.extensions import FinishAfter, Timing, Printing, ProgressBar
 from blocks.extensions.monitoring import (DataStreamMonitoring,
                                           TrainingDataMonitoring)
 from blocks.extensions.saveload import Checkpoint
+from blocks.extensions.training import TrackTheBest
+from blocks.extensions.predicates import OnLogRecord
 from blocks.serialization import load_parameters
 from blocks.initialization import Constant, Uniform
 from blocks.main_loop import MainLoop
@@ -242,6 +245,8 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
             model.set_parameter_values(load_parameters(src))
 
     if mode == 'train':
+        save_to_base, save_to_extension = os.path.splitext(save_to)
+
         # Training stream with random cropping
         train = DogsVsCats(("train",), subset=slice(None, 25000 - valid_examples, None))
         train_str =  DataStream(
@@ -280,8 +285,13 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
                         aggregation.mean(algorithm.total_gradient_norm)],
                         prefix="train",
                         after_epoch=True),
+                    TrackTheBest("valid_error_rate"),
                     Checkpoint(save_to, save_separately=['log'],
-                                before_training=True, after_epoch=True),
+                                before_training=True, after_epoch=True)
+                        .add_condition(
+                            ['after_epoch'],
+                            OnLogRecord("valid_error_rate_best_so_far"),
+                            (save_to_base + '_best' + save_to_extension,)),
                     Printing(every_n_batches=100)]
 
         model = Model(cost)
