@@ -250,7 +250,7 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
     if mode == 'train':
         directory, _ = os.path.split(sys.argv[0])
         env = dict(os.environ)
-        env['THEANO_FLAGS'] = ''
+        env['THEANO_FLAGS'] = 'floatX=float32'
         subprocess.Popen(
             [directory + '/server.py', str(25000 - valid_examples), str(batch_size)],
             env=env)
