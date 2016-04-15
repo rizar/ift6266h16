@@ -1,4 +1,4 @@
-export PYTHONPATH=$PYTHONPATH:dist/Theano:dist/blocks
+export PYTHONPATH=$PYTHONPATH:$HOME/dist/Theano:$HOME/dist/blocks:$HOME/dist/ift6266h16/
 export THEANO_FLAGS='device=gpu,floatX=float32,optimizer=fast_run,lib.cnmem=0.9'
 rsync ~/data/dogs_vs_cats.hdf5 $LSCRATCH
 export FUEL_DATA_PATH=$LSCRATCH
