@@ -39,6 +39,9 @@ from blocks.initialization import Constant, Uniform
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.monitoring import aggregation
+from blocks.filter import VariableFilter
+from blocks.graph import ComputationGraph, apply_dropout
+from blocks.roles import OUTPUT
 from fuel.datasets import DogsVsCats
 from fuel.schemes import ShuffledScheme, SequentialExampleScheme
 from fuel.streams import DataStream, ServerDataStream
@@ -163,7 +166,8 @@ class LeNet(FeedforwardSequence, Initializable):
 def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=None,
          conv_sizes=None, pool_sizes=None,
          batch_size=None, num_batches=None, algo=None,
-         test_set=None, valid_examples=None):
+         test_set=None, valid_examples=None,
+         dropout=None):
     if feature_maps is None:
         feature_maps = [20, 50]
     if mlp_hiddens is None:
@@ -221,6 +225,12 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
             .copy(name='cost'))
     error_rate = (MisclassificationRate().apply(y.flatten(), probs)
                   .copy(name='error_rate'))
+
+    cg = ComputationGraph(cost)
+    if dropout:
+        relu_outputs = VariableFilter(bricks=[Rectifier], roles=[OUTPUT])(cg)
+        cg = apply_dropout(cg, relu_outputs, dropout)
+        cost = cg.outputs[0]
 
     # Validation
     valid_probs = convnet.apply_5windows(single_x)
@@ -340,6 +350,8 @@ if __name__ == "__main__":
                         help="Batch size.")
     parser.add_argument("--algo", choices=['rmsprop', 'adam'],
                         help="The algorithm to use.")
+    parser.add_argument("--dropout", type=float,
+                        help="Dropout coefficient")
 
     parser.add_argument("--test-set", type=str)
     parser.add_argument("--valid-examples", type=int)
