@@ -10,10 +10,12 @@ It is going to reach around 0.8% error rate on the test set.
 """
 from __future__ import print_function
 
+import sys
 import logging
 import numpy
 import os
 import math
+import subprocess
 from argparse import ArgumentParser
 
 import theano
@@ -40,64 +42,11 @@ from blocks.monitoring import aggregation
 from fuel.datasets import DogsVsCats
 from fuel.schemes import ShuffledScheme, SequentialExampleScheme
 from fuel.streams import DataStream, ServerDataStream
-from fuel.transformers import ScaleAndShift, ForceFloatX
-from fuel.transformers.image import (
-    RandomFixedSizeCrop,
-    SourcewiseTransformer, ExpectsAxisLabels)
-from fuel.server import start_server
 from toolz.itertoolz import interleave
-from PIL import Image
+
+from server import add_transformers
 
 logger = logging.getLogger(__name__)
-
-
-class ForceMinimumDimension(SourcewiseTransformer, ExpectsAxisLabels):
-    def __init__(self, data_stream, min_dim, resample='nearest',
-                 **kwargs):
-        self.min_dim = min_dim
-        try:
-            self.resample = getattr(Image, resample.upper())
-        except AttributeError:
-            raise ValueError("unknown resampling filter '{}'".format(resample))
-        kwargs.setdefault('produces_examples', data_stream.produces_examples)
-        kwargs.setdefault('axis_labels', data_stream.axis_labels)
-        super(ForceMinimumDimension, self).__init__(data_stream, **kwargs)
-
-    def transform_source_batch(self, batch, source_name):
-        self.verify_axis_labels(('batch', 'channel', 'height', 'width'),
-                                self.data_stream.axis_labels[source_name],
-                                source_name)
-        return [self._example_transform(im, source_name) for im in batch]
-
-    def transform_source_example(self, example, source_name):
-        self.verify_axis_labels(('channel', 'height', 'width'),
-                                self.data_stream.axis_labels[source_name],
-                                source_name)
-        return self._example_transform(example, source_name)
-
-    def _example_transform(self, example, _):
-        if example.ndim > 3 or example.ndim < 2:
-            raise NotImplementedError
-        original_min_dim = min(example.shape[-2:])
-        multiplier = self.min_dim / float(original_min_dim)
-        dt = example.dtype
-        # If we're dealing with a colour image, swap around the axes
-        # to be in the format that PIL needs.
-        if example.ndim == 3:
-            im = example.transpose(1, 2, 0)
-        else:
-            im = example
-        im = Image.fromarray(im)
-        width, height = im.size
-        width = int(math.ceil(width * multiplier))
-        height = int(math.ceil(height * multiplier))
-        im = numpy.array(im.resize((width, height))).astype(dt)
-        # If necessary, undo the axis swap from earlier.
-        if im.ndim == 3:
-            example = im.transpose(2, 0, 1)
-        else:
-            example = im
-        return example
 
 
 class LeNet(FeedforwardSequence, Initializable):
@@ -211,18 +160,6 @@ class LeNet(FeedforwardSequence, Initializable):
         return self.apply(x_views).mean(axis=0)[None, :]
 
 
-def add_transformers(stream, random_crop=False):
-    stream = ForceMinimumDimension(stream, 128,
-                                   which_sources=['image_features'])
-    if random_crop:
-        stream = RandomFixedSizeCrop(stream, (128, 128),
-                                    which_sources=['image_features'])
-    stream = ScaleAndShift(stream, 1 / 255.0, 0,
-                           which_sources=['image_features'])
-    stream = ForceFloatX(stream)
-    return stream
-
-
 def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=None,
          conv_sizes=None, pool_sizes=None,
          batch_size=None, num_batches=None, algo=None,
@@ -310,9 +247,13 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
         valid, iteration_scheme=SequentialExampleScheme(valid.num_examples))
     valid_str = add_transformers(valid_str)
 
-    if mode == 'server':
-        start_server(train_str)
     if mode == 'train':
+        directory, _ = os.path.split(sys.argv[0])
+        env = dict(os.environ)
+        env['THEANO_FLAGS'] = ''
+        subprocess.Popen(
+            [directory + '/server.py', str(25000 - valid_examples), str(batch_size)],
+            env=env)
         train_str = ServerDataStream(('image_features', 'targets'), produces_examples=False)
 
         save_to_base, save_to_extension = os.path.splitext(save_to)
@@ -387,7 +328,7 @@ if __name__ == "__main__":
     parser = ArgumentParser("An example of training a convolutional network "
                             "on the MNIST dataset.")
     parser.add_argument("mode",
-                        help="What to do", choices=['train', 'server', 'test'])
+                        help="What to do", choices=['train', 'test'])
     parser.add_argument("save_to",
                         help="Destination to save the state of the training "
                              "process.")
