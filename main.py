@@ -84,8 +84,9 @@ class LeNet(FeedforwardSequence, Initializable):
         List of activations for the top MLP.
     top_mlp_dims : list
         Numbers of hidden units and the output dimension of the top MLP.
-    conv_step : tuples
-        Step of convolution (similar for all layers).
+    stride : int
+        Step of convolution for the first layer, 1 will be used
+        for all other layers.
     border_mode : str
         Border mode of convolution (similar for all layers).
 
@@ -93,11 +94,8 @@ class LeNet(FeedforwardSequence, Initializable):
     def __init__(self, conv_activations, num_channels, image_shape,
                  filter_sizes, feature_maps, pooling_sizes,
                  top_mlp_activations, top_mlp_dims,
-                 conv_step=None, border_mode='valid', **kwargs):
-        if conv_step is None:
-            self.conv_step = (1, 1)
-        else:
-            self.conv_step = conv_step
+                 stride, border_mode='valid', **kwargs):
+        self.stride = stride
         self.num_channels = num_channels
         self.image_shape = image_shape
         self.top_mlp_activations = top_mlp_activations
@@ -110,7 +108,7 @@ class LeNet(FeedforwardSequence, Initializable):
         self.layers = list(interleave([
             (Convolutional(filter_size=filter_size,
                            num_filters=num_filter,
-                           step=self.conv_step,
+                           step=(1, 1) if i > 0 else (self.stride, self.stride),
                            border_mode=self.border_mode,
                            name='conv_{}'.format(i))
              for i, (filter_size, num_filter)
@@ -165,8 +163,8 @@ class LeNet(FeedforwardSequence, Initializable):
         return self.apply(x_views).mean(axis=0)[None, :]
 
 
-def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hiddens=None,
-         conv_sizes=None, pool_sizes=None,
+def main(mode, save_to, num_epochs, load_params=None,
+         feature_maps=None, mlp_hiddens=None, conv_sizes=None, pool_sizes=None, stride=None,
          batch_size=None, num_batches=None, algo=None,
          test_set=None, valid_examples=None,
          dropout=None, max_norm=None):
@@ -182,6 +180,8 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
         batch_size = 500
     if valid_examples is None:
         valid_examples = 2500
+    if stride is None:
+        stride = 1
     if test_set is None:
         test_set = 'test'
     if algo is None:
@@ -198,6 +198,7 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
     conv_activations = [Rectifier() for _ in feature_maps]
     mlp_activations = [Rectifier() for _ in mlp_hiddens] + [Softmax()]
     convnet = LeNet(conv_activations, 3, image_size,
+                    stride=stride,
                     filter_sizes=zip(conv_sizes, conv_sizes),
                     feature_maps=feature_maps,
                     pooling_sizes=zip(pool_sizes, pool_sizes),
@@ -377,6 +378,8 @@ if __name__ == "__main__":
     parser.add_argument("--test-set", type=str)
     parser.add_argument("--valid-examples", type=int)
 
+    parser.add_argument("--stride", type=int,
+                        help="Stride for the first layer")
     parser.add_argument("--feature-maps", type=int, nargs='+',
                         help="List of feature maps numbers.")
     parser.add_argument("--mlp-hiddens", type=int, nargs='+',
