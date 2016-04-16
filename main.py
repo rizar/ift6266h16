@@ -267,13 +267,14 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
         directory, _ = os.path.split(sys.argv[0])
         env = dict(os.environ)
         env['THEANO_FLAGS'] = 'floatX=float32'
+        port = numpy.random.randint(1025, 10000)
         server = subprocess.Popen(
             [directory + '/server.py',
-             str(25000 - valid_examples), str(batch_size), '1108'],
+             str(25000 - valid_examples), str(batch_size), str(port)],
             env=env, stderr=subprocess.STDOUT)
         train_str = ServerDataStream(
             ('image_features', 'targets'), produces_examples=False,
-            port=1108)
+            port=port)
 
         save_to_base, save_to_extension = os.path.splitext(save_to)
 
