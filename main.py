@@ -14,21 +14,23 @@ import sys
 import logging
 import numpy
 import os
-import math
 import subprocess
 from argparse import ArgumentParser
 
 import theano
 from theano import tensor
 
-from blocks.algorithms import GradientDescent, Scale, RMSProp, Adam
+from blocks.algorithms import (
+    GradientDescent, RMSProp, Adam,
+    Restrict, CompositeRule, VariableClipping)
 from blocks.bricks.base import application
 from blocks.bricks import (MLP, Rectifier, Initializable, FeedforwardSequence,
                            Softmax, Activation)
 from blocks.bricks.conv import (Convolutional, ConvolutionalSequence,
                                 Flattener, MaxPooling)
 from blocks.bricks.cost import CategoricalCrossEntropy, MisclassificationRate
-from blocks.extensions import FinishAfter, Timing, Printing, ProgressBar
+from blocks.bricks.simple import Linear
+from blocks.extensions import FinishAfter, Timing, Printing
 from blocks.extensions.monitoring import (DataStreamMonitoring,
                                           TrainingDataMonitoring)
 from blocks.extensions.saveload import Checkpoint
@@ -41,7 +43,7 @@ from blocks.model import Model
 from blocks.monitoring import aggregation
 from blocks.filter import VariableFilter
 from blocks.graph import ComputationGraph, apply_dropout
-from blocks.roles import OUTPUT
+from blocks.roles import OUTPUT, WEIGHT
 from fuel.datasets import DogsVsCats
 from fuel.schemes import ShuffledScheme, SequentialExampleScheme
 from fuel.streams import DataStream, ServerDataStream
@@ -167,9 +169,9 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
          conv_sizes=None, pool_sizes=None,
          batch_size=None, num_batches=None, algo=None,
          test_set=None, valid_examples=None,
-         dropout=None):
+         dropout=None, max_norm=None):
     if feature_maps is None:
-        feature_maps = [20, 50]
+        feature_maps = [20, 50, 50]
     if mlp_hiddens is None:
         mlp_hiddens = [500]
     if conv_sizes is None:
@@ -187,6 +189,10 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
 
     image_size = (128, 128)
     output_size = 2
+
+    if (len(feature_maps) != len(conv_sizes) or
+        len(feature_maps) != len(pool_sizes)):
+        raise ValueError("OMG, inconsistent arguments")
 
     # Use ReLUs everywhere and softmax for the final prediction
     conv_activations = [Rectifier() for _ in feature_maps]
@@ -275,6 +281,13 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
             step_rule = Adam()
         else:
             assert False
+        if max_norm:
+            conv_params = VariableFilter(bricks=[Convolutional], roles=[WEIGHT])(cg)
+            linear_params = VariableFilter(bricks=[Linear], roles=[WEIGHT])(cg)
+            step_rule = CompositeRule(
+                [step_rule,
+                 Restrict(VariableClipping(max_norm, axis=0), linear_params),
+                 Restrict(VariableClipping(max_norm, axis=(1, 2, 3)), conv_params)])
 
         algorithm = GradientDescent(
             cost=cost, parameters=model.parameters,
@@ -352,12 +365,14 @@ if __name__ == "__main__":
                         help="The algorithm to use.")
     parser.add_argument("--dropout", type=float,
                         help="Dropout coefficient")
+    parser.add_argument("--max-norm", type=float,
+                        help="Dropout coefficient")
 
     parser.add_argument("--test-set", type=str)
     parser.add_argument("--valid-examples", type=int)
 
     parser.add_argument("--feature-maps", type=int, nargs='+',
-                        default=[20, 50], help="List of feature maps numbers.")
+                        help="List of feature maps numbers.")
     parser.add_argument("--mlp-hiddens", type=int, nargs='+',
                         help="List of numbers of hidden units for the MLP.")
     parser.add_argument("--conv-sizes", type=int, nargs='+',
