@@ -232,8 +232,8 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
     error_rate = (MisclassificationRate().apply(y.flatten(), probs)
                   .copy(name='error_rate'))
 
+    cg = ComputationGraph([cost, error_rate])
     if dropout:
-        cg = ComputationGraph([cost, error_rate])
         relu_outputs = VariableFilter(bricks=[Rectifier], roles=[OUTPUT])(cg)
         cg = apply_dropout(cg, relu_outputs, dropout)
         cost, error_rate = cg.outputs
