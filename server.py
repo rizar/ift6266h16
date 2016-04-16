@@ -3,6 +3,7 @@
 import sys
 import numpy
 import math
+import logging
 
 from fuel.datasets import DogsVsCats
 from fuel.schemes import ShuffledScheme
@@ -76,8 +77,9 @@ def add_transformers(stream, random_crop=False):
     return stream
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG)
     train = DogsVsCats(("train",), subset=slice(None, int(sys.argv[1]), None))
     train_str =  DataStream(
         train, iteration_scheme=ShuffledScheme(train.num_examples, int(sys.argv[2])))
     train_str = add_transformers(train_str, random_crop=True)
-    start_server(train_str)
+    start_server(train_str, port=int(sys.argv[3]))

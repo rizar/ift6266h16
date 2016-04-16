@@ -232,11 +232,11 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
     error_rate = (MisclassificationRate().apply(y.flatten(), probs)
                   .copy(name='error_rate'))
 
-    cg = ComputationGraph(cost)
     if dropout:
+        cg = ComputationGraph([cost, error_rate])
         relu_outputs = VariableFilter(bricks=[Rectifier], roles=[OUTPUT])(cg)
         cg = apply_dropout(cg, relu_outputs, dropout)
-        cost = cg.outputs[0]
+        cost, error_rate = cg.outputs
 
     # Validation
     valid_probs = convnet.apply_5windows(single_x)
@@ -267,10 +267,13 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
         directory, _ = os.path.split(sys.argv[0])
         env = dict(os.environ)
         env['THEANO_FLAGS'] = 'floatX=float32'
-        subprocess.Popen(
-            [directory + '/server.py', str(25000 - valid_examples), str(batch_size)],
-            env=env)
-        train_str = ServerDataStream(('image_features', 'targets'), produces_examples=False)
+        server = subprocess.Popen(
+            [directory + '/server.py',
+             str(25000 - valid_examples), str(batch_size), '1108'],
+            env=env, stderr=subprocess.STDOUT)
+        train_str = ServerDataStream(
+            ('image_features', 'targets'), produces_examples=False,
+            port=1108)
 
         save_to_base, save_to_extension = os.path.splitext(save_to)
 
@@ -323,8 +326,10 @@ def main(mode, save_to, num_epochs, load_params=None, feature_maps=None, mlp_hid
             train_str,
             model=model,
             extensions=extensions)
-
-        main_loop.run()
+        try:
+            main_loop.run()
+        finally:
+            server.terminate()
     elif mode == 'test':
         classify = theano.function([single_x], valid_probs.argmax())
         test = DogsVsCats((test_set,))
