@@ -45,14 +45,27 @@ from blocks.filter import VariableFilter
 from blocks.graph import ComputationGraph, apply_dropout
 from blocks.roles import OUTPUT, WEIGHT
 from blocks.theano_expressions import l2_norm
+from blocks.initialization import NdarrayInitialization
 from fuel.datasets import DogsVsCats
 from fuel.schemes import ShuffledScheme, SequentialExampleScheme
 from fuel.streams import DataStream, ServerDataStream
-from toolz.itertoolz import interleave
 
 from server import add_transformers
 
 logger = logging.getLogger(__name__)
+
+
+class Glorot(NdarrayInitialization):
+    def generate(self, rng, shape):
+        if len(shape) == 2:
+            fan_in = shape[0]
+            fan_out = shape[1]
+        elif len(shape) == 4:
+            fan_in = shape[1] * shape[2] * shape[3]
+            fan_out = shape[0] * shape[2] * shape[3]
+        half_width = (6. / (fan_in + fan_out)) ** 0.5
+        m = rng.uniform(-half_width, half_width, size=shape)
+        return m.astype(theano.config.floatX)
 
 
 class LeNet(FeedforwardSequence, Initializable):
@@ -211,7 +224,7 @@ def main(mode, save_to, num_epochs, load_params=None,
                     top_mlp_activations=mlp_activations,
                     top_mlp_dims=mlp_hiddens + [output_size],
                     border_mode='full',
-                    weights_init=Uniform(width=.1),
+                    weights_init=Glorot(),
                     biases_init=Constant(0))
     # We push initialization config to set different initialization schemes
     # for convolutional layers.
