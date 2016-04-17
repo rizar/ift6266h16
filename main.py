@@ -44,6 +44,7 @@ from blocks.monitoring import aggregation
 from blocks.filter import VariableFilter
 from blocks.graph import ComputationGraph, apply_dropout
 from blocks.roles import OUTPUT, WEIGHT
+from blocks.theano_expressions import l2_norm
 from fuel.datasets import DogsVsCats
 from fuel.schemes import ShuffledScheme, SequentialExampleScheme
 from fuel.streams import DataStream, ServerDataStream
@@ -168,7 +169,7 @@ def main(mode, save_to, num_epochs, load_params=None,
          conv_sizes=None, pool_sizes=None, stride=None, repeat_times=None,
          batch_size=None, num_batches=None, algo=None,
          test_set=None, valid_examples=None,
-         dropout=None, max_norm=None):
+         dropout=None, max_norm=None, weight_decay=None):
     if feature_maps is None:
         feature_maps = [20, 50, 50]
     if mlp_hiddens is None:
@@ -243,6 +244,10 @@ def main(mode, save_to, num_epochs, load_params=None,
         relu_outputs = VariableFilter(bricks=[Rectifier], roles=[OUTPUT])(cg)
         cg = apply_dropout(cg, relu_outputs, dropout)
         cost, error_rate = cg.outputs
+    if weight_decay:
+        logger.debug("Apply weight decay {}".format(weight_decay))
+        cost += weight_decay * l2_norm(cg.parameters)
+        cost.name = 'cost'
 
     # Validation
     valid_probs = convnet.apply_5windows(single_x)
@@ -379,6 +384,8 @@ if __name__ == "__main__":
                         help="Dropout coefficient")
     parser.add_argument("--max-norm", type=float,
                         help="Dropout coefficient")
+    parser.add_argument("--weight-decay", type=float,
+                        help="Weight decay coefficient")
 
     parser.add_argument("--test-set", type=str)
     parser.add_argument("--valid-examples", type=int)
