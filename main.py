@@ -80,6 +80,8 @@ class LeNet(FeedforwardSequence, Initializable):
         Number of filters for each of convolutions.
     pooling_sizes : list of tuples
         Sizes of max pooling for each convolutional layer.
+    repeat_times : list of int
+        How many times to repeat each convolutional layer.
     top_mlp_activations : list of :class:`.blocks.bricks.Activation`
         List of activations for the top MLP.
     top_mlp_dims : list
@@ -92,7 +94,7 @@ class LeNet(FeedforwardSequence, Initializable):
 
     """
     def __init__(self, conv_activations, num_channels, image_shape,
-                 filter_sizes, feature_maps, pooling_sizes,
+                 filter_sizes, feature_maps, pooling_sizes, repeat_times,
                  top_mlp_activations, top_mlp_dims,
                  stride, border_mode='valid', **kwargs):
         self.stride = stride
@@ -102,20 +104,18 @@ class LeNet(FeedforwardSequence, Initializable):
         self.top_mlp_dims = top_mlp_dims
         self.border_mode = border_mode
 
-        conv_parameters = zip(filter_sizes, feature_maps)
-
         # Construct convolutional layers with corresponding parameters
-        self.layers = list(interleave([
-            (Convolutional(filter_size=filter_size,
-                           num_filters=num_filter,
-                           step=(1, 1) if i > 0 else (self.stride, self.stride),
-                           border_mode=self.border_mode,
-                           name='conv_{}'.format(i))
-             for i, (filter_size, num_filter)
-             in enumerate(conv_parameters)),
-            conv_activations,
-            (MaxPooling(size, name='pool_{}'.format(i))
-             for i, size in enumerate(pooling_sizes))]))
+        self.layers = []
+        for i, activation in enumerate(conv_activations):
+            for j in range(repeat_times[i]):
+                self.layers.append(
+                    Convolutional(
+                        filter_size=filter_sizes[i], num_filters=feature_maps[i],
+                        step=(1, 1) if i > 0 or j > 0 else (self.stride, self.stride),
+                        border_mode=self.border_mode,
+                        name='conv_{}_{}'.format(i, j)))
+                self.layers.append(activation)
+            self.layers.append(MaxPooling(pooling_sizes[i], name='pool_{}'.format(i)))
 
         self.conv_sequence = ConvolutionalSequence(self.layers, num_channels,
                                                    image_size=image_shape)
@@ -164,7 +164,8 @@ class LeNet(FeedforwardSequence, Initializable):
 
 
 def main(mode, save_to, num_epochs, load_params=None,
-         feature_maps=None, mlp_hiddens=None, conv_sizes=None, pool_sizes=None, stride=None,
+         feature_maps=None, mlp_hiddens=None,
+         conv_sizes=None, pool_sizes=None, stride=None, repeat_times=None,
          batch_size=None, num_batches=None, algo=None,
          test_set=None, valid_examples=None,
          dropout=None, max_norm=None):
@@ -176,6 +177,8 @@ def main(mode, save_to, num_epochs, load_params=None,
         conv_sizes = [5, 5, 5]
     if pool_sizes is None:
         pool_sizes = [2, 2, 2]
+    if repeat_times is None:
+        repeat_times = [1, 1, 1]
     if batch_size is None:
         batch_size = 500
     if valid_examples is None:
@@ -191,7 +194,8 @@ def main(mode, save_to, num_epochs, load_params=None,
     output_size = 2
 
     if (len(feature_maps) != len(conv_sizes) or
-        len(feature_maps) != len(pool_sizes)):
+        len(feature_maps) != len(pool_sizes) or
+        len(feature_maps) != len(repeat_times)):
         raise ValueError("OMG, inconsistent arguments")
 
     # Use ReLUs everywhere and softmax for the final prediction
@@ -202,6 +206,7 @@ def main(mode, save_to, num_epochs, load_params=None,
                     filter_sizes=zip(conv_sizes, conv_sizes),
                     feature_maps=feature_maps,
                     pooling_sizes=zip(pool_sizes, pool_sizes),
+                    repeat_times=repeat_times,
                     top_mlp_activations=mlp_activations,
                     top_mlp_dims=mlp_hiddens + [output_size],
                     border_mode='full',
@@ -391,6 +396,8 @@ if __name__ == "__main__":
                         help="Pooling sizes. The pooling windows are always "
                              "square. Should be the same length as "
                              "--conv-sizes.")
+    parser.add_argument("--repeat-times", type=int, nargs='+',
+                        help="Number of times to repeat each conv. layer")
 
     args = parser.parse_args()
     main(**vars(args))
