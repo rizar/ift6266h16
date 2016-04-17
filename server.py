@@ -66,8 +66,9 @@ class ForceMinimumDimension(SourcewiseTransformer, ExpectsAxisLabels):
 
 
 def add_transformers(stream, random_crop=False):
-    stream = ForceMinimumDimension(stream, 128,
-                                   which_sources=['image_features'])
+    # Now the dataset has images with good minimum size
+    # stream = ForceMinimumDimension(stream, 128,
+    #                                which_sources=['image_features'])
     if random_crop:
         stream = RandomFixedSizeCrop(stream, (128, 128),
                                     which_sources=['image_features'])
