@@ -109,7 +109,7 @@ class LeNet(FeedforwardSequence, Initializable):
         for all other layers.
     border_mode : str
         Border mode of convolution (similar for all layers).
-    batch_norm : bool
+    batch_norm : str
     """
     def __init__(self, conv_activations, num_channels, image_shape,
                  filter_sizes, feature_maps, pooling_sizes, repeat_times,
@@ -136,7 +136,7 @@ class LeNet(FeedforwardSequence, Initializable):
                     self.layers.append(
                         BatchNormalization(broadcastable=(False, True, True),
                                         conserve_memory=True,
-                                        mean_only=True,
+                                        mean_only=batch_norm == 'mean-only',
                                         name='bn_{}_{}'.format(i, j)))
                 self.layers.append(activation)
             self.layers.append(MaxPooling(pooling_sizes[i], name='pool_{}'.format(i)))
@@ -278,6 +278,7 @@ def main(mode, save_to, num_epochs, load_params=None,
         alpha = 0.005
         extra_updates = [(p, m * alpha + p * (1 - alpha))
                          for p, m in pop_updates]
+        population_statistics = [p for p, m in extra_updates]
     if dropout:
         relu_outputs = VariableFilter(bricks=[Rectifier], roles=[OUTPUT])(cg)
         cg = apply_dropout(cg, relu_outputs, dropout)
@@ -363,7 +364,9 @@ def main(mode, save_to, num_epochs, load_params=None,
                         after_epoch=True),
                     TrackTheBest("valid_error_rate"),
                     Checkpoint(save_to, save_separately=['log'],
-                                before_training=True, after_epoch=True)
+                               parameters=cg.parameters +
+                               (population_statistics if batch_norm else []),
+                               before_training=True, after_epoch=True)
                         .add_condition(
                             ['after_epoch'],
                             OnLogRecord("valid_error_rate_best_so_far"),
@@ -425,7 +428,7 @@ if __name__ == "__main__":
                         help="Dropout coefficient")
     parser.add_argument("--weight-decay", type=float,
                         help="Weight decay coefficient")
-    parser.add_argument("--batch-norm", action="store_true",
+    parser.add_argument("--batch-norm", choices=['full', 'mean-only'],
                         help="Weight decay coefficient")
 
     parser.add_argument("--test-set", type=str)
