@@ -26,3 +26,10 @@ that adding the 3rd layer does not help as much as adding the 4th.
 
 ![deeper]({{site.baseurl}}/downloads/2layers_vs_3layers.png)
 
+Finally, not the first time in my life I notice that neural network training has quite a bit 
+of variance in it. Below I show two families of experiments with the same models and parameters. A naked
+eye is enough to see that some of the runs are clearly better than others. I find this very disturbing.
+Of course, one can never fully eliminate the possibility of a bug, but I checked everything quite carefully.
+
+![var1]({{site.baseurl}}/downloads/variance1.png)
+![var2]({{site.baseurl}}/downloads/variance2.png)
