@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "On network architecture and variance of results - 88.9%"
+title:  "On network architecture and variance of results - 87.87%"
 date:   2016-04-17 12:46:00
 categories: jekyll update
 ---
