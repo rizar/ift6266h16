@@ -37,7 +37,7 @@ from blocks.extensions.saveload import Checkpoint
 from blocks.extensions.training import TrackTheBest
 from blocks.extensions.predicates import OnLogRecord
 from blocks.serialization import load_parameters
-from blocks.initialization import Constant, Uniform
+from blocks.initialization import Constant
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.monitoring import aggregation
@@ -46,6 +46,10 @@ from blocks.graph import ComputationGraph, apply_dropout
 from blocks.roles import OUTPUT, WEIGHT
 from blocks.theano_expressions import l2_norm
 from blocks.initialization import NdarrayInitialization
+from blocks.bricks.bn import BatchNormalization
+from blocks.graph.bn import (
+    apply_batch_normalization, get_batch_normalization_updates,
+    batch_normalization)
 from fuel.datasets import DogsVsCats
 from fuel.schemes import ShuffledScheme, SequentialExampleScheme
 from fuel.streams import DataStream, ServerDataStream
@@ -105,12 +109,12 @@ class LeNet(FeedforwardSequence, Initializable):
         for all other layers.
     border_mode : str
         Border mode of convolution (similar for all layers).
-
+    batch_norm : bool
     """
     def __init__(self, conv_activations, num_channels, image_shape,
                  filter_sizes, feature_maps, pooling_sizes, repeat_times,
                  top_mlp_activations, top_mlp_dims,
-                 stride, border_mode='valid', **kwargs):
+                 stride, batch_norm, border_mode='valid', **kwargs):
         self.stride = stride
         self.num_channels = num_channels
         self.image_shape = image_shape
@@ -128,6 +132,12 @@ class LeNet(FeedforwardSequence, Initializable):
                         step=(1, 1) if i > 0 or j > 0 else (self.stride, self.stride),
                         border_mode=self.border_mode,
                         name='conv_{}_{}'.format(i, j)))
+                if batch_norm:
+                    self.layers.append(
+                        BatchNormalization(broadcastable=(False, True, True),
+                                        conserve_memory=True,
+                                        mean_only=True,
+                                        name='bn_{}_{}'.format(i, j)))
                 self.layers.append(activation)
             self.layers.append(MaxPooling(pooling_sizes[i], name='pool_{}'.format(i)))
 
@@ -182,7 +192,8 @@ def main(mode, save_to, num_epochs, load_params=None,
          conv_sizes=None, pool_sizes=None, stride=None, repeat_times=None,
          batch_size=None, num_batches=None, algo=None,
          test_set=None, valid_examples=None,
-         dropout=None, max_norm=None, weight_decay=None):
+         dropout=None, max_norm=None, weight_decay=None,
+         batch_norm=None):
     if feature_maps is None:
         feature_maps = [20, 50, 50]
     if mlp_hiddens is None:
@@ -203,6 +214,8 @@ def main(mode, save_to, num_epochs, load_params=None,
         test_set = 'test'
     if algo is None:
         algo = 'rmsprop'
+    if batch_norm is None:
+        batch_norm = False
 
     image_size = (128, 128)
     output_size = 2
@@ -224,6 +237,7 @@ def main(mode, save_to, num_epochs, load_params=None,
                     top_mlp_activations=mlp_activations,
                     top_mlp_dims=mlp_hiddens + [output_size],
                     border_mode='full',
+                    batch_norm=batch_norm,
                     weights_init=Glorot(),
                     biases_init=Constant(0))
     # We push initialization config to set different initialization schemes
@@ -246,17 +260,28 @@ def main(mode, save_to, num_epochs, load_params=None,
     y = tensor.lmatrix('targets')
 
     # Training
-    probs = convnet.apply(x)
+    with batch_normalization(convnet):
+        probs = convnet.apply(x)
     cost = (CategoricalCrossEntropy().apply(y.flatten(), probs)
             .copy(name='cost'))
     error_rate = (MisclassificationRate().apply(y.flatten(), probs)
                   .copy(name='error_rate'))
 
     cg = ComputationGraph([cost, error_rate])
+    extra_updates = []
+
+    if batch_norm: # batch norm:
+        logger.debug("Apply batch norm")
+        pop_updates = get_batch_normalization_updates(cg)
+        # p stands for population mean
+        # m stands for minibatch
+        alpha = 0.005
+        extra_updates = [(p, m * alpha + p * (1 - alpha))
+                         for p, m in pop_updates]
     if dropout:
         relu_outputs = VariableFilter(bricks=[Rectifier], roles=[OUTPUT])(cg)
         cg = apply_dropout(cg, relu_outputs, dropout)
-        cost, error_rate = cg.outputs
+    cost, error_rate = cg.outputs
     if weight_decay:
         logger.debug("Apply weight decay {}".format(weight_decay))
         cost += weight_decay * l2_norm(cg.parameters)
@@ -320,6 +345,7 @@ def main(mode, save_to, num_epochs, load_params=None,
         algorithm = GradientDescent(
             cost=cost, parameters=model.parameters,
             step_rule=step_rule)
+        algorithm.add_updates(extra_updates)
         # `Timing` extension reports time for reading data, aggregating a batch
         # and monitoring;
         # `ProgressBar` displays a nice progress bar during training.
@@ -398,6 +424,8 @@ if __name__ == "__main__":
     parser.add_argument("--max-norm", type=float,
                         help="Dropout coefficient")
     parser.add_argument("--weight-decay", type=float,
+                        help="Weight decay coefficient")
+    parser.add_argument("--batch-norm", action="store_true",
                         help="Weight decay coefficient")
 
     parser.add_argument("--test-set", type=str)
