@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "Regularization and summary - 94.9%"
+title:  "Regularization - 94.9%"
 date:   2016-04-18 11:12:00
 categories: jekyll update
 ---
@@ -18,13 +18,17 @@ In the end I figured that for the models I care about I will try the following:
 - pure dropout 
 - dropout with column norm constraint of 1 
 
-Quite expectedly, the training with dropout took much longer. Here are the results:
+Quite expectedly, the training with dropout took much longer. Here are the results
+(I only report results with the regularization that worked better):
 
 - 8 layer VGG performance improved from 91.9% to 94.9% with pure dropout
-- 6 layer VGG performance improved from XXX to YYY with pure dropout
-- 4 layer LeNet performance improved from XXX to YYY with pure dropout
+- 6 layer VGG performance decreases from 94.8% to 93.6% with dropout and max norm
+- 4 layer LeNet performance improved from 93.9% to 94.8% with dropout and max norm
+
+It is interesting that in this round of experiments, dropout was only helpful for deeper networks.
+And the deeper the network, the more helpful it was.
 
 Currently, 8 layer VGG is my champion with a very small margin above less regularized 6-layer VGG.
 Its performance is 94.5% on the test and 96.4% on the full training set. This rather small margin
 suggests that I could try to increase the capacity of the network layers. Or maybe use
-advanced optimization techniques (momentum, annealing), to fine-tune the network.
+advanced optimization techniques (momentum, annealing) to fine-tune the network.
