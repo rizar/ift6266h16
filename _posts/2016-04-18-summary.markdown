@@ -39,5 +39,8 @@ Main take-home messages:
 - Batch normalization brings an overwhelming improvement to both the speed of
   the training and the final performance.
 
-I think I could improve my results by incorporating more rotation, translation, scale and reflection invariance in the network architecture and/or using these transformationsto obtain ever more training examples. It would be especially interesting to apply 
-add a [spatial transformer](http://arxiv.org/abs/1506.02025) module for the network.
+I think I could improve my results by incorporating more rotation, translation,
+scale and reflection invariance in the network architecture and/or using these
+transformationsto obtain ever more training examples. It would be especially
+interesting to apply add a [spatial
+transformer](http://arxiv.org/abs/1506.02025) module for the network.
