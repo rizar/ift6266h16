@@ -29,6 +29,6 @@ It is interesting that in this round of experiments, dropout was only helpful fo
 And the deeper the network, the more helpful it was.
 
 Currently, 8 layer VGG is my champion with a very small margin above less regularized 6-layer VGG.
-Its performance is *94.5%* on the test and 96.4% on the full training set. This rather small margin
+Its performance is **94.5%** on the test and 96.4% on the full training set. This rather small margin
 suggests that I could try to increase the capacity of the network layers. Or maybe use
 advanced optimization techniques (momentum, annealing) to fine-tune the network.
