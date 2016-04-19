@@ -22,7 +22,12 @@ I trained as follows:
 - all layers were initialized using the method proposed by Glorot et al.
 - batch size 100, RMSProp with learning rate 0.0003 and decay rate 0.999
 
-Main take home messages:
+I evaluated as follows:
+
+- networks predictions were averaged over 5 windows of 128x128, 4 corner ones
+  and one in the center of the imag
+
+Main take-home messages:
 
 - Data augmentation is extremely important. 
 - RMSProp is a very robust training method that allows to try different architectures.
@@ -33,3 +38,6 @@ Main take home messages:
   on the performance that they can not possibly surpass.
 - Batch normalization brings an overwhelming improvement to both the speed of
   the training and the final performance.
+
+I think I could improve my results by incorporating more rotation, translation, scale and reflection invariance in the network architecture and/or using these transformationsto obtain ever more training examples. It would be especially interesting to apply 
+add a [spatial transformer](http://arxiv.org/abs/1506.02025) module for the network.
