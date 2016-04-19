@@ -1,0 +1,35 @@
+---
+layout: post
+title:  "Summary - 95.28% on the test set"
+date:   2016-04-18 23:59:59
+categories: jekyll update
+---
+
+My best network has the following architecture:
+
+- 8 layers of 3x3 convolutions with zero-padding with 20, 20, 50, 50, 50, 50,
+  50, 50 feature maps
+- 4 max pooling layers with subsampling, one after every second convolutional
+  layer
+- a fully-connected layer of 500 units followed by a softmax
+- mean-only batch normalization before rectifiers in convolutional layers
+
+I trained as follows:
+
+- all intensities are normalized to be in $$[0, 1]$$
+- a random crop of 128x128 was taken from an image prescaled to have a minimum
+  dimension of 150
+- all layers were initialized using the method proposed by Glorot et al.
+- batch size 100, RMSProp with learning rate 0.0003 and decay rate 0.999
+
+Main take home messages:
+
+- Data augmentation is extremely important. 
+- RMSProp is a very robust training method that allows to try different architectures.
+- Similarly the initialization proposed by Glorot et al. worked very robustly
+  for a lot of architectures.
+- Depth is great, but a lot of regularization (or batch norm) might be required
+  to benefit from it. On the other hand, shallow networks seem to have a bound 
+  on the performance that they can not possibly surpass.
+- Batch normalization brings an overwhelming improvement to both the speed of
+  the training and the final performance.
