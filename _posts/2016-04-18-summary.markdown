@@ -44,3 +44,9 @@ scale and reflection invariance in the network architecture and/or using these
 transformationsto obtain ever more training examples. It would be especially
 interesting to apply add a [spatial
 transformer](http://arxiv.org/abs/1506.02025) module for the network.
+
+### P.S.
+
+The network with full batch normalization converged much slower, but eventually 
+performed better: 96.4% on the validation set. I did not measure the test performance.
+
