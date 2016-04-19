@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  "Batch normalization - 95.9%"
-date:   2016-04-18 11:12:00
+date:   2016-04-18 22:00:00
 categories: jekyll update
 ---
 
